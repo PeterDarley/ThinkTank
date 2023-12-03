@@ -4,7 +4,7 @@ import settings
 from network import WLAN, STA_IF
 from machine import Pin, Timer
 
-from utils.timing import TimerFactory
+from utils.timing import TimerManager
 
 class WIFI:
     """ Singleton that manages the WIFI connection. """
@@ -31,7 +31,7 @@ class WIFI:
 
         self.sta_if.connect(self.ssid, self.password)
         if settings.WIFI["BLINK_ON_CONNECT"]:
-            TimerFactory().get_timer(callback=self.check_connection_tick, periods=[1000], cycles=90)
+            TimerManager().get_timer(callback=self.check_connection_tick, periods=[1000], cycles=90)
 
     @property
     def is_connected(self):
@@ -112,7 +112,7 @@ class LED:
             return False
         
         self.blinking = True
-        self.timer = TimerFactory().get_timer(callback=self.blink_tick, periods=[on_period, off_period], cycles=cycles, end_callback=self.blink_end)
+        self.timer = TimerManager().get_timer(callback=self.blink_tick, periods=[on_period, off_period], cycles=cycles, end_callback=self.blink_end)
 
         return True
 

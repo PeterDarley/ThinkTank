@@ -5,7 +5,7 @@ BOARD = "ESP32"
 WIFI = {
     "SSID": "my_ssid",
     "PASSWORD": "my_password",
-    "BLINK_ON_CONNECT": False,
+    "BLINK_ON_CONNECT": True,
 }
 
 # Board settings

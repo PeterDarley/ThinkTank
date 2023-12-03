@@ -6,14 +6,14 @@ from math import inf
 import settings
 
 
-class TimerFactory:
-    """ Factory that manages the timers """
+class TimerManager:
+    """ Manager for the timers """
 
     def __new__(cls, *args, **kwargs):
         """ Create a singleton. """
     
         if not hasattr(cls, "instance"):
-            cls.instance: TimerFactory = super(TimerFactory, cls).__new__(cls)
+            cls.instance: TimerManager = super(TimerManager, cls).__new__(cls)
 
         return cls.instance
     
@@ -62,7 +62,7 @@ class TimerFactory:
             self.timer_index: int = timer
 
             self.timer: Timer = Timer(self.timer_index)
-            TimerFactory().timers[self.timer_index] = self
+            TimerManager().timers[self.timer_index] = self
 
             self.tick(None)
 
@@ -78,13 +78,14 @@ class TimerFactory:
             self.timer.init(period=period, mode=Timer.ONE_SHOT, callback=self.tick)
             schedule(self.callback, self)
 
-        def stop(self, _):
+        def stop(self, code: str=None):
             """ Stop the timer. """
 
             self.timer.deinit()
-            TimerFactory().timers[self.timer_index] = None
+            TimerManager().timers[self.timer_index] = None
             self.timer = None
-            if self.end_callback:
+
+            if self.end_callback and code != "kill":
                 schedule(self.end_callback, self)
 
     def get_timer(self, *, callback: callable, periods: list[int], cycles: int=inf, end_callback: callable=None) -> Timey:
@@ -94,3 +95,10 @@ class TimerFactory:
             return self.Timey(timer=self.first_available_timer(), callback=callback, periods=periods, cycles=cycles, end_callback=end_callback)
         else:
             raise Exception("No timers available.")
+    
+    def kill_all_timers(self):
+        """ Stop all timers. """
+
+        for timer in self.timers:
+            if timer:
+                timer.stop("kill")
