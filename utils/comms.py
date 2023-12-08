@@ -1,8 +1,8 @@
 """ Package to facilitate communications. """
 import settings
 
-from network import WLAN, STA_IF
-from machine import Pin, Timer
+from network import WLAN, STA_IF                # type: ignore
+from machine import Pin, Timer, I2C             # type: ignore
 
 from utils.timing import TimerManager
 
@@ -20,18 +20,19 @@ class WIFI:
     def __init__(self, *, ssid: str=None, password: str=None):
         """ Initialize the WIFI connection. """
 
-        self.ssid: str = ssid or settings.WIFI["SSID"]
-        self.password: str = password or settings.WIFI["PASSWORD"]
+        if not hasattr(self, "sta_if"):
+            self.ssid: str = ssid or settings.WIFI["SSID"]
+            self.password: str = password or settings.WIFI["Password"]
 
-        self.sta_if: WLAN = WLAN(STA_IF)
-        self.sta_if.active(True)
-        
-        if not self.ssid or not self.password:
-            raise ValueError("SSID or password not provided.")
+            self.sta_if: WLAN = WLAN(STA_IF)
+            self.sta_if.active(True)
+            
+            if not self.ssid or not self.password:
+                raise ValueError("SSID or password not provided.")
 
-        self.sta_if.connect(self.ssid, self.password)
-        if settings.WIFI["BLINK_ON_CONNECT"]:
-            TimerManager().get_timer(callback=self.check_connection_tick, periods=[1000], cycles=90)
+            self.sta_if.connect(self.ssid, self.password)
+            if settings.WIFI["Blink_on_connect"]:
+                TimerManager().get_timer(callback=self.check_connection_tick, periods=[1000], cycles=90)
 
     @property
     def is_connected(self):
@@ -72,10 +73,11 @@ class LED:
     def __init__(self, pin: int=None):
         """ Initialize the LED. """
 
-        self.led: Pin = Pin(pin or settings.PINS["LED"], Pin.OUT)
-        self.blinking: bool = False
-        self.blink_count: int = 0
-        self.timer: Timer = None
+        if not hasattr(self, "led"):
+            self.led: Pin = Pin(pin or settings.PINS["LED"], Pin.OUT)
+            self.blinking: bool = False
+            self.blink_count: int = 0
+            self.timer: Timer = None
 
     def __str__(self):
         """ Return the LED status. """
@@ -135,4 +137,49 @@ class LED:
         if self.timer:
             self.timer.stop()
         
+
+class IIC:
+    """ Singleton that manages the I2C bus. """
+
+    def __new__(cls, *args, **kwargs):
+        """ Create a singleton. """
+
+        if not hasattr(cls, "instance"):
+            cls.instance: IIC = super(IIC, cls).__new__(cls)
+
+        return cls.instance
+    
+    def __init__(self) -> None:
+        """ Initialize the I2C bus. """
         
+        if not hasattr(self, "i2c"):
+            self.i2c: I2C = I2C(0, scl=Pin(settings.PINS["SCL"]), sda=Pin(settings.PINS["SDA"]), freq=settings.I2C["Freq"])
+            
+            self.devices: dict = {}
+            self.scan: list = self.i2c.scan()
+
+            for device in settings.I2C["IDs"]:
+                if settings.I2C["IDs"][device] in self.scan:
+                    self.devices[device] = self.Device(name=device, address=settings.I2C["IDs"][device])
+
+            if settings.WIFI["Blink_on_connect"]:
+                LED().blink(times=3)
+                
+    class Device:
+        """ Device on the I2C bus. """
+
+        def __init__(self, name: str, address: int) -> None:
+            """ Initialize the device. """
+
+            self.name: str = name
+            self.address: int = address
+    
+    def __str__(self):
+        """ Return the I2C status. """
+        
+        #for device in self.devices.values():
+        #    print(f"{device.name} at {device.address}")
+        
+        # print(', '.join([f'{device.name} at: {device.address}' for device in self.devices.values()]))
+
+        return f"I2C devices: " + ", ".join([f"{device.name} at: {device.address}" for device in self.devices.values()])

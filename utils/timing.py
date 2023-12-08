@@ -1,6 +1,6 @@
 """ Holds classes/functions for timing """
-from micropython import schedule
-from machine import Timer
+from micropython import schedule                # type: ignore
+from machine import Timer                       # type: ignore        
 from math import inf
 
 import settings
