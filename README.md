@@ -8,4 +8,4 @@ Very eary work on writing a controller for a combat robot.  I'd like the bot to 
 Currently useing an ESP32 - Wroom module and developing in MicroPython
 
 The current state of the Think Tank hardware:
-![Alt text](https://github.com/PeterDarley/ThinkTank/blob/main/ThinkTank.jpg)
+![Alt text](https://github.com/PeterDarley/ThinkTank/blob/main/docs/ThinkTank.jpg)
