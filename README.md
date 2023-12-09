@@ -11,3 +11,10 @@ Currently useing an ESP32 - Wroom module and developing in MicroPython
 
 The current state of the Think Tank hardware:
 ![Alt text](https://github.com/PeterDarley/ThinkTank/blob/main/docs/ThinkTank.jpg)
+
+I chose all the hardware out of ignorance because it was cheap, with the idea that once I had a better idea of what I was doing I could upgrade to what made sense.  So far I'm happy with all of it.
+
+Hardware used:
+* ESP-WROOM-32 development board - Only has 512k of memory.  I suspect this will need to be replaced.
+* GY-273 HMC5883L 3 axis compass module
+* GY-521 MPU-6050 3 axis Accelerometer/Gyroscope module
