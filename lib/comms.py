@@ -3,9 +3,10 @@
 import settings
 from collections import OrderedDict
 
-from network import WLAN, STA_IF                # type: ignore
 from machine import Pin, Timer, I2C             # type: ignore
-from time import time_ns
+from network import WLAN, STA_IF                # type: ignore
+from time import time_ns    
+from ustruct import pack                        # type: ignore
 
 from timing import TimerManager
 from utils import bytes_to_int
@@ -170,6 +171,8 @@ class I2CManager:
                 if id in self.scan:
                     if device == "AccelGyro":
                         self.devices[device] = self.AccelGyro(name=device, address=id)
+                    if device == "Compass":
+                        self.devices[device] = self.Compass(name=device, address=id)
                     else:
                         self.devices[device] = self.Device(name=device, address=id)
 
@@ -187,7 +190,7 @@ class I2CManager:
 
             self.name: str = name
             self.address: int = address
-            self.i2c = I2CManager()
+            self.i2c = I2CManager().i2c
 
     class AccelGyro(Device):
         """ Accelerometer/Gyroscope. 
@@ -198,7 +201,7 @@ class I2CManager:
 
             super().__init__(name=name, address=address)
 
-            self.i2c.i2c.writeto(self.address, bytearray([107, 0]))
+            self.i2c.writeto(self.address, bytearray([107, 0]))
 
             self.values: OrderedDict[str: int] = OrderedDict([
                 ("time_ns", None),
@@ -211,10 +214,10 @@ class I2CManager:
                 ("temp", None),
             ])
 
-        def get_values(self) -> tuple:
+        def get_values(self) -> OrderedDict[str: int]:
             """ Load and return the raw values. """
 
-            bytes: bytearray = self.i2c.i2c.readfrom_mem(self.address, 0x3B, 14)
+            bytes: bytearray = self.i2c.readfrom_mem(self.address, 0x3B, 14)
             self.values["time_ns"] = time_ns()
             self.values["accel_x"] = bytes_to_int(bytes[0], bytes[1])
             self.values["accel_y"] = bytes_to_int(bytes[2], bytes[3])
@@ -227,8 +230,58 @@ class I2CManager:
             return self.values
 
     class Compass(Device):
-        """ Compass. """
-    
+        """ Compass. 
+        Based on https://github.com/gvalkov/micropython-esp8266-hmc5883l/blob/master/hmc5883l.py, with thanks."""
+
+        __gain__ = {
+            '0.88': (0 << 5, 0.73),
+            '1.3':  (1 << 5, 0.92),
+            '1.9':  (2 << 5, 1.22),
+            '2.5':  (3 << 5, 1.52),
+            '4.0':  (4 << 5, 2.27),
+            '4.7':  (5 << 5, 2.56),
+            '5.6':  (6 << 5, 3.03),
+            '8.1':  (7 << 5, 4.35)
+        }
+
+        def __init__(self, name: str, address: int, gauss: str="1.3") -> None:
+            """ Initialize the device. 
+            Don't know how the gauss is determined, but it's the default in the Arduino library."""
+
+            super().__init__(name=name, address=address)
+
+            # Configuration register A:
+            #   0bx11xxxxx  -> 8 samples averaged per measurement
+            #   0bxxx100xx  -> 15 Hz, rate at which data is written to output registers
+            #   0bxxxxxx00  -> Normal measurement mode
+            self.i2c.writeto_mem(self.address, 0x00, pack('B', 0b111000))
+
+            # Configuration register B:
+            reg_value, self.gain = self.__gain__[gauss]
+            self.i2c.writeto_mem(self.address, 0x01, pack('B', reg_value))
+
+            # Set mode register to continuous mode.
+            self.i2c.writeto_mem(self.address, 0x02, pack('B', 0x00))
+
+            self.values: OrderedDict[str: int] = OrderedDict([
+                ("time_ns", None),
+                ("compass_x", None),
+                ("compass_y", None),
+                ("compass_z", None),
+            ])
+
+        def get_values(self) -> OrderedDict[str: int]:
+            """ Load and return the raw values. """
+
+            bytes: bytearray = self.i2c.readfrom_mem(self.address, 0x03, 6)
+            # self.values["time_ns"] = time_ns()
+            # self.values["compass_x"] = bytes_to_int(bytes[0], bytes[1])
+            # self.values["compass_y"] = bytes_to_int(bytes[4], bytes[5])
+            # self.values["compass_z"] = bytes_to_int(bytes[2], bytes[3])
+
+            # return self.values
+            return bytes
+        
     def __str__(self):
         """ Return the I2C status. """
         
