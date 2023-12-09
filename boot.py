@@ -4,10 +4,14 @@ import micropython              # type: ignore
 # set up the exception buffer so we can see what happens if we crash
 micropython.alloc_emergency_exception_buf(100)
 
-from utils.comms import WIFI, IIC
+from comms import WIFIManager, I2CManager     # type: ignore
+
+print("\nBooting...")
 
 # Start the WIFI
-WIFI()
+WIFIManager()
 
 # Start the I2C
-IIC()
+I2CManager()
+
+print("Boot complete.\n")

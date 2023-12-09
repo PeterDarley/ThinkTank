@@ -1,19 +1,23 @@
 """ Package to facilitate communications. """
+
 import settings
+from collections import OrderedDict
 
 from network import WLAN, STA_IF                # type: ignore
 from machine import Pin, Timer, I2C             # type: ignore
+from time import time_ns
 
-from utils.timing import TimerManager
+from timing import TimerManager
+from utils import bytes_to_int
 
-class WIFI:
+class WIFIManager:
     """ Singleton that manages the WIFI connection. """
 
     def __new__(cls, *args, **kwargs):
         """ Create a singleton. """
 
         if not hasattr(cls, "instance"):
-            cls.instance: WIFI = super(WIFI, cls).__new__(cls)
+            cls.instance: WIFIManager = super(WIFIManager, cls).__new__(cls)
 
         return cls.instance
 
@@ -31,8 +35,12 @@ class WIFI:
                 raise ValueError("SSID or password not provided.")
 
             self.sta_if.connect(self.ssid, self.password)
-            if settings.WIFI["Blink_on_connect"]:
+            
+            if settings.WIFI.get("Blink_on_connect"):
                 TimerManager().get_timer(callback=self.check_connection_tick, periods=[1000], cycles=90)
+
+            if settings.WIFI.get("Print_on_connect"):
+                print(self)
 
     @property
     def is_connected(self):
@@ -55,18 +63,18 @@ class WIFI:
         """ Check the WIFI connection repeatedly until it's up, or our counter reaches zero. """
 
         if self.is_connected:
-            LED().blink(times=2)
+            LEDManager().blink(times=2)
             timer.stop(None)
 
 
-class LED:
+class LEDManager:
     """ Singleton that manages the LED. """
 
     def __new__(cls, *args, **kwargs):
         """ Create a singleton. """
 
         if not hasattr(cls, "instance"):
-            cls.instance: LED = super(LED, cls).__new__(cls)
+            cls.instance: LEDManager = super(LEDManager, cls).__new__(cls)
 
         return cls.instance
 
@@ -138,14 +146,14 @@ class LED:
             self.timer.stop()
         
 
-class IIC:
+class I2CManager:
     """ Singleton that manages the I2C bus. """
 
     def __new__(cls, *args, **kwargs):
         """ Create a singleton. """
 
         if not hasattr(cls, "instance"):
-            cls.instance: IIC = super(IIC, cls).__new__(cls)
+            cls.instance: I2CManager = super(I2CManager, cls).__new__(cls)
 
         return cls.instance
     
@@ -158,12 +166,18 @@ class IIC:
             self.devices: dict = {}
             self.scan: list = self.i2c.scan()
 
-            for device in settings.I2C["IDs"]:
-                if settings.I2C["IDs"][device] in self.scan:
-                    self.devices[device] = self.Device(name=device, address=settings.I2C["IDs"][device])
+            for id, device in settings.I2C["IDs"].items():
+                if id in self.scan:
+                    if device == "AccelGyro":
+                        self.devices[device] = self.AccelGyro(name=device, address=id)
+                    else:
+                        self.devices[device] = self.Device(name=device, address=id)
 
-            if settings.WIFI["Blink_on_connect"]:
-                LED().blink(times=3)
+            if settings.I2C.get("Blink_on_connect"):
+                LEDManager().blink(times=3)
+
+            if settings.I2C.get("Print_on_connect"):
+                print(self)
                 
     class Device:
         """ Device on the I2C bus. """
@@ -173,13 +187,49 @@ class IIC:
 
             self.name: str = name
             self.address: int = address
+            self.i2c = I2CManager()
+
+    class AccelGyro(Device):
+        """ Accelerometer/Gyroscope. 
+        Based on https://github.com/adamjezek98/MPU6050-ESP8266-MicroPython, with thanks."""
+
+        def __init__(self, name: str, address: int) -> None:
+            """ Initialize the device. """
+
+            super().__init__(name=name, address=address)
+
+            self.i2c.i2c.writeto(self.address, bytearray([107, 0]))
+
+            self.values: OrderedDict[str: int] = OrderedDict([
+                ("time_ns", None),
+                ("accel_x", None),
+                ("accel_y", None),
+                ("accel_z", None),
+                ("gyro_x", None),
+                ("gyro_y", None),
+                ("gyro_z", None),
+                ("temp", None),
+            ])
+
+        def get_values(self) -> tuple:
+            """ Load and return the raw values. """
+
+            bytes: bytearray = self.i2c.i2c.readfrom_mem(self.address, 0x3B, 14)
+            self.values["time_ns"] = time_ns()
+            self.values["accel_x"] = bytes_to_int(bytes[0], bytes[1])
+            self.values["accel_y"] = bytes_to_int(bytes[2], bytes[3])
+            self.values["accel_z"] = bytes_to_int(bytes[4], bytes[5])
+            self.values["temp"] = bytes_to_int(bytes[6], bytes[7]) / 340.00 + 36.53
+            self.values["gyro_x"] = bytes_to_int(bytes[8], bytes[9]) / settings.GYRO["Scale_factor"]
+            self.values["gyro_y"] = bytes_to_int(bytes[10], bytes[11]) / settings.GYRO["Scale_factor"]
+            self.values["gyro_z"] = bytes_to_int(bytes[12], bytes[13]) / settings.GYRO["Scale_factor"]
+
+            return self.values
+
+    class Compass(Device):
+        """ Compass. """
     
     def __str__(self):
         """ Return the I2C status. """
         
-        #for device in self.devices.values():
-        #    print(f"{device.name} at {device.address}")
-        
-        # print(', '.join([f'{device.name} at: {device.address}' for device in self.devices.values()]))
-
-        return f"I2C devices: " + ", ".join([f"{device.name} at: {device.address}" for device in self.devices.values()])
+        return f"I2C devices: " + ", ".join([f"{device.name} at {device.address}" for device in self.devices.values()])
