@@ -1,5 +1,5 @@
 """ Holds classes/functions for timing """
-from micropython import schedule                # type: ignore
+from micropython import schedule, const         # type: ignore
 from machine import Timer                       # type: ignore        
 from math import inf
 
@@ -27,10 +27,10 @@ class TimerManager:
     def timer_count(self):
         """ Return the number of timers available. """
 
-        timer_counts: dict = {"ESP32": 4}
+        timer_counts: dict = {"ESP32": const(4)}
 
-        if settings.BOARD in timer_counts:
-            return timer_counts[settings.BOARD]
+        if settings.BOARD["Type"] in timer_counts:
+            return timer_counts[settings.settings.BOARD["Type"]]
         else:
             # Guess at number of timers.  Choosing 4 out of ignorance.
             return 4
