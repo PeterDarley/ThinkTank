@@ -169,10 +169,10 @@ class I2CManager:
 
             for id, device in settings.I2C["IDs"].items():
                 if id in self.scan:
-                    if device == "AccelGyro":
-                        self.devices[device] = self.AccelGyro(name=device, address=id)
-                    if device == "Compass":
-                        self.devices[device] = self.Compass(name=device, address=id)
+                    if device == "MPU6050" and settings.ACCEL_GYRO["Type"] == "MPU6050":
+                        self.devices[device] = self.MPU6050(name=device, address=id)
+                    if device == "Compass" and settings.COMPASS["Type"] == "QMC5883L":
+                        self.devices[device] = self.QMC5883L(name=device, address=id)
                     else:
                         self.devices[device] = self.Device(name=device, address=id)
 
@@ -192,7 +192,7 @@ class I2CManager:
             self.address: int = address
             self.i2c = I2CManager().i2c
 
-    class AccelGyro(Device):
+    class MPU6050(Device):
         """ Accelerometer/Gyroscope. 
         Based on https://github.com/adamjezek98/MPU6050-ESP8266-MicroPython, with thanks."""
 
@@ -229,7 +229,7 @@ class I2CManager:
 
             return self.values
 
-    class Compass(Device):
+    class QMC5883L(Device):
         """ Compass. 
         Based on https://github.com/gvalkov/micropython-esp8266-hmc5883l/blob/master/hmc5883l.py, with thanks."""
 
@@ -244,9 +244,8 @@ class I2CManager:
             '8.1':  (7 << 5, 4.35)
         }
 
-        def __init__(self, name: str, address: int, gauss: str="1.3") -> None:
-            """ Initialize the device. 
-            Don't know how the gauss is determined, but it's the default in the Arduino library."""
+        def __init__(self, name: str, address: int, gauss='1.3') -> None:
+            """ Initialize the device. """
 
             super().__init__(name=name, address=address)
 
@@ -273,13 +272,14 @@ class I2CManager:
         def get_values(self) -> OrderedDict[str: int]:
             """ Load and return the raw values. """
 
-            bytes: bytearray = self.i2c.readfrom_mem(self.address, 0x03, 6)
+            bytes = self.i2c.readfrom_mem(self.address, 0x03, 6)
             # self.values["time_ns"] = time_ns()
             # self.values["compass_x"] = bytes_to_int(bytes[0], bytes[1])
             # self.values["compass_y"] = bytes_to_int(bytes[4], bytes[5])
             # self.values["compass_z"] = bytes_to_int(bytes[2], bytes[3])
 
             # return self.values
+            # Test
             return bytes
         
     def __str__(self):
