@@ -16,5 +16,5 @@ I chose all the hardware out of ignorance because it was cheap, with the thought
 
 Hardware used:
 * ESP-WROOM-32 development board - Only has 512k of memory.  I suspect this will need to be replaced.
-* GY-273 HMC5883L 3 axis compass module
+* GY-273 QMC5883L 3 axis compass module
 * GY-521 MPU-6050 3 axis Accelerometer/Gyroscope module
