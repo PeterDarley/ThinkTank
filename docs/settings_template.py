@@ -1,15 +1,41 @@
-# Board information
-BOARD = "ESP32"
+""" Package to hold settings"""
 
-# Wifi settings
-WIFI = {
-    "SSID": "my_ssid",
-    "PASSWORD": "my_password",
-    "BLINK_ON_CONNECT": True,
+from micropython import const       # type: ignore
+
+BOARD = {
+    "Type": const("ESP32"),
+    "CPU_Speed": const(240000000),
 }
 
-# Board settings
 PINS = {
-    "LED": 2,
-    "BUTTON": 0,
+    "LED": const(2),
+    "Button": const(0),
+    "SCL": const(22),
+    "SDA": const(21),
+}
+
+WIFI = {
+    "SSID": const("my_ssd"),
+    "Password": const("my_password"),
+    "Blink_on_connect": const(True),
+    "Print_on_connect": const(True),
+}
+
+I2C = {
+    "Blink_on_connect": const(True),
+    "Print_on_connect": const(True),
+    "Freq": const(400000),
+    "IDs": {
+        13: const("Compass"),
+        104: const("AccelGyro"),
+    }
+}
+
+ACCEL_GYRO = {
+    "Type": const("MPU6050"),
+    "Scale_factor": const(131),
+}
+
+COMPASS = {
+    "Type": const("QMC5883L"),
 }
