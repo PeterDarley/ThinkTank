@@ -30,7 +30,7 @@ class TimerManager:
         timer_counts: dict = {"ESP32": const(4)}
 
         if settings.BOARD["Type"] in timer_counts:
-            return timer_counts[settings.settings.BOARD["Type"]]
+            return timer_counts[settings.BOARD["Type"]]
         else:
             # Guess at number of timers.  Choosing 4 out of ignorance.
             return 4

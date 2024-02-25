@@ -6,8 +6,11 @@ from collections import OrderedDict
 from machine import Pin, Timer, I2C             # type: ignore
 from network import WLAN, STA_IF                # type: ignore
 from time import time_ns    
-from ustruct import pack                        # type: ignore
+from struct import unpack                       # type: ignore
 
+mf = __import__("micropython-fusion")
+
+from constants import qmc5883l
 from timing import TimerManager
 from utils import bytes_to_int
 
@@ -169,10 +172,12 @@ class I2CManager:
 
             for id, device in settings.I2C["IDs"].items():
                 if id in self.scan:
-                    if device == "MPU6050" and settings.ACCEL_GYRO["Type"] == "MPU6050":
+                    if device == "AccellGyro" and settings.ACCEL_GYRO["Type"] == "MPU6050":
                         self.devices[device] = self.MPU6050(name=device, address=id)
+
                     if device == "Compass" and settings.COMPASS["Type"] == "QMC5883L":
                         self.devices[device] = self.QMC5883L(name=device, address=id)
+
                     else:
                         self.devices[device] = self.Device(name=device, address=id)
 
@@ -231,56 +236,67 @@ class I2CManager:
 
     class QMC5883L(Device):
         """ Compass. 
-        Based on https://github.com/gvalkov/micropython-esp8266-hmc5883l/blob/master/hmc5883l.py, with thanks."""
+        Based on https://github.com/robert-hh/QMC5883, with thanks."""
 
-        __gain__ = {
-            '0.88': (0 << 5, 0.73),
-            '1.3':  (1 << 5, 0.92),
-            '1.9':  (2 << 5, 1.22),
-            '2.5':  (3 << 5, 1.52),
-            '4.0':  (4 << 5, 2.27),
-            '4.7':  (5 << 5, 2.56),
-            '5.6':  (6 << 5, 3.03),
-            '8.1':  (7 << 5, 4.35)
-        }
-
-        def __init__(self, name: str, address: int, gauss='1.3') -> None:
+        def __init__(self, name: str, address: int, temp_offset: float=50.0, oversampling=qmc5883l.CONFIG_OS64, gauss=qmc5883l.CONFIG_2GAUSS, rate=qmc5883l.CONFIG_100HZ, mode=qmc5883l.CONFIG_CONT) -> None:
             """ Initialize the device. """
 
             super().__init__(name=name, address=address)
 
-            # Configuration register A:
-            #   0bx11xxxxx  -> 8 samples averaged per measurement
-            #   0bxxx100xx  -> 15 Hz, rate at which data is written to output registers
-            #   0bxxxxxx00  -> Normal measurement mode
-            self.i2c.writeto_mem(self.address, 0x00, pack('B', 0b111000))
+            self.command = bytearray(1)
+            self.data = bytearray(9)
+            self.temp_offset = temp_offset
 
-            # Configuration register B:
-            reg_value, self.gain = self.__gain__[gauss]
-            self.i2c.writeto_mem(self.address, 0x01, pack('B', reg_value))
+            self.oversampling = oversampling
+            self.gauss = gauss
+            self.rate = rate
+            self.mode = mode
 
-            # Set mode register to continuous mode.
-            self.i2c.writeto_mem(self.address, 0x02, pack('B', 0x00))
+            # Reset the device.
+            self.command[0] = 1
+            self.i2c.writeto_mem(self.address, qmc5883l.RESET, self.command)
 
-            self.values: OrderedDict[str: int] = OrderedDict([
-                ("time_ns", None),
-                ("compass_x", None),
-                ("compass_y", None),
-                ("compass_z", None),
-            ])
+            # Set the oversampling rate | range | rate | mode.
+            self.command[0] = (self.oversampling | self.gauss | self.rate | self.mode)
+            self.i2c.writeto_mem(self.address, qmc5883l.CONFIG, self.command)
 
-        def get_values(self) -> OrderedDict[str: int]:
+            # Set the config 2 register?
+            self.command[0] = qmc5883l.CONFIG2_INT_DISABLE
+            self.i2c.writeto_mem(self.address, qmc5883l.CONFIG2, self.command)
+
+        def get_values(self, no_temp = False) -> tuple(int, int, int, int) | tuple(int, int, int):
             """ Load and return the raw values. """
 
-            bytes = self.i2c.readfrom_mem(self.address, 0x03, 6)
-            # self.values["time_ns"] = time_ns()
-            # self.values["compass_x"] = bytes_to_int(bytes[0], bytes[1])
-            # self.values["compass_y"] = bytes_to_int(bytes[4], bytes[5])
-            # self.values["compass_z"] = bytes_to_int(bytes[2], bytes[3])
+            self.i2c.readfrom_mem_into(self.address, qmc5883l.X_LSB, self.data)
+            x, y, z, _, temp = unpack('<hhhBh', self.data)
+            if no_temp:
+                return (x, y, z)
+            
+            return (x, y, z, temp)
+        
+        def get_values_no_temp(self) -> tuple(int, int, int):
+            """ Load and return the raw values. """ 
 
-            # return self.values
-            # Test
-            return bytes
+            return self.get_values(no_temp=True)
+        
+        def get_scaled_values(self):
+            x, y, z, temp = self.get_values()
+            scale = 12000 if self.gauss == qmc5883l.CONFIG_2GAUSS else 3000
+
+            return (x / scale, y / scale, z / scale,
+                    (temp / 100 + self.temp_offset))
+        
+        def calibrate(self):
+            """ Calibrate the compass. """
+
+        def calibrate_count_callback(self): 
+            """ Callback for the calibration count. """
+
+            for count in range(1, 100):
+                yield count
+
+            yield False
+            
         
     def __str__(self):
         """ Return the I2C status. """

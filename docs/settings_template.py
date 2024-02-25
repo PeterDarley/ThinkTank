@@ -4,7 +4,7 @@ from micropython import const       # type: ignore
 
 BOARD = {
     "Type": const("ESP32"),
-    "CPU_Speed": const(240000000),
+    "CPU_Frequency": const(240000000),
 }
 
 PINS = {
