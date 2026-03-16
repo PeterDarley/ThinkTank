@@ -1,6 +1,7 @@
 """ Package to facilitate communications. """
 
 import settings
+import micropython              # type: ignore
 from collections import OrderedDict
 
 from machine import Pin, Timer, I2C             # type: ignore
@@ -25,12 +26,19 @@ class WIFIManager:
 
         return cls.instance
 
-    def __init__(self, *, ssid: str=None, password: str=None):
+    def __init__(self, *, ssid: str=None, password: str=None, callback: callable=None):
         """ Initialize the WIFI connection. """
+
+        # Always update the callback even on subsequent singleton calls
+        if callback:
+            self.connect_callback = callback
 
         if not hasattr(self, "sta_if"):
             self.ssid: str = ssid or settings.WIFI["SSID"]
             self.password: str = password or settings.WIFI["Password"]
+            # default callback storage if not set above
+            if not hasattr(self, 'connect_callback'):
+                self.connect_callback = None
 
             self.sta_if: WLAN = WLAN(STA_IF)
             self.sta_if.active(True)
@@ -40,8 +48,8 @@ class WIFIManager:
 
             self.sta_if.connect(self.ssid, self.password)
             
-            if settings.WIFI.get("Blink_on_connect"):
-                TimerManager().get_timer(callback=self.check_connection_tick, periods=[1000], cycles=90)
+            # Always start the polling timer — needed to detect connection and fire callback
+            TimerManager().get_timer(callback=self.check_connection_tick, periods=[1000], cycles=90)
 
             if settings.WIFI.get("Print_on_connect"):
                 print(self)
@@ -67,8 +75,25 @@ class WIFIManager:
         """ Check the WIFI connection repeatedly until it's up, or our counter reaches zero. """
 
         if self.is_connected:
-            LEDManager().blink(times=2)
+            if settings.WIFI.get("Blink_on_connect"):
+                LEDManager().blink(times=2)
             timer.stop(None)
+            # invoke the provided callback (deferred via micropython.schedule)
+            if hasattr(self, 'connect_callback') and self.connect_callback:
+                try:
+                    micropython.schedule(self._run_connect_callback, 0)
+                except Exception:
+                    # fallback to direct call
+                    try:
+                        self.connect_callback()
+                    except Exception:
+                        pass
+
+    def _run_connect_callback(self, _):
+        try:
+            self.connect_callback()
+        except Exception:
+            pass
 
 
 class LEDManager:
