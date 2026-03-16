@@ -12,4 +12,4 @@ fi
 
 PORT=${1:-COM3}
 
-"$MPREMOTE" connect "$PORT" fs cp -r boot.py main.py settings.py lib/ :
+"$MPREMOTE" connect "$PORT" fs cp -r boot.py main.py settings.py lib/ www/ :

@@ -8,9 +8,27 @@ if (-not (Test-Path $mpremote)) {
     exit 1
 }
 
-# Default COM port can be overridden by providing a first argument
-$port = $args[0]
+# Parse arguments: accept optional port and optional 'noreboot' flag.
+$noreboot = $false
+$port = $null
+foreach ($a in $args) {
+    if ($a -ieq 'noreboot' -or $a -ieq '--noreboot' -or $a -ieq '-n') {
+        $noreboot = $true
+        continue
+    }
+    # treat any other argument as the port (e.g. COM3)
+    if (-not $port) { $port = $a }
+}
 if (-not $port) { $port = 'COM3' }
 
 # Copy files and directories to the device (creates dirs automatically)
-& $mpremote connect $port fs cp -r boot.py main.py settings.py lib/ :
+Write-Output "Uploading to $port..."
+& $mpremote connect $port fs cp -r boot.py main.py settings.py lib/ www/ :
+
+# Soft-restart the device so new code runs (unless user requested no reboot)
+if (-not $noreboot) {
+    Write-Output "Rebooting device..."
+    & $mpremote connect $port exec "import machine; machine.reset()"
+} else {
+    Write-Output "Upload complete (no reboot requested)."
+}
