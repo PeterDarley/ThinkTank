@@ -39,3 +39,11 @@ ACCEL_GYRO = {
 COMPASS = {
     "Type": const("QMC5883L"),
 }
+
+BILLBOARD = {
+    "MOSI":       const(23),   # DIN on MAX7219
+    "SCK":        const(18),   # CLK on MAX7219
+    "CS":         const(5),    # CS/LOAD on MAX7219
+    "Num":        const(4),    # number of chained MAX7219 modules
+    "Brightness": const(5),    # 0-15
+}
