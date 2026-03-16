@@ -5,3 +5,16 @@ This file is the single source-of-truth for notes the user asks Copilot to "note
 Guideline:
 - When the user says "note ..." or asks you to "note something", add it in this file.
 
+## Notes
+
+### MAX7219 4-module LED matrix display wiring
+Uses **SPI** (not I2C). Pin mapping (set in `settings.BILLBOARD`):
+
+| MAX7219 pin | ESP32 GPIO | Wire function |
+|---|---|---|
+| DIN  | GPIO 23 | SPI MOSI (data in) |
+| CLK  | GPIO 18 | SPI SCK (clock) |
+| CS   | GPIO 5  | Chip select |
+| VCC  | 5 V     | Power (must be 5 V, not 3.3 V) |
+| GND  | GND     | Common ground |
+
