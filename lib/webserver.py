@@ -27,7 +27,17 @@ except Exception:
     _THREAD = False
 
 class WebServer:
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, host='0.0.0.0', port=80, www_dir='www', debug=False):
+        if getattr(self, '_initialised', False):
+            return
+        self._initialised = True
         self.host = host
         self.port = port
         self.www_dir = www_dir
