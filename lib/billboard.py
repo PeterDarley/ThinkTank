@@ -20,6 +20,12 @@ import framebuf
 import time
 from machine import Pin, SPI  # type: ignore
 
+try:
+    import _thread
+    _THREAD = True
+except Exception:
+    _THREAD = False
+
 from max7219 import Matrix8x8
 
 
@@ -110,15 +116,10 @@ class Billboard:
         if self._debug:
             print('billboard: static_text:', repr(msg))
 
-    def scroll_text(self, msg, delay_ms=60, repeat=1):
+    def _scroll_text_blocking(self, msg, delay_ms=60, repeat=1):
         """
-        Scroll text from right to left across the display.
-
-        Parameters
-        ----------
-        msg      : string to display
-        delay_ms : milliseconds between each one-pixel shift
-        repeat   : how many times to scroll the message
+        Internal: Scroll text from right to left (blocking).
+        Use scroll_text() instead, which runs this in the background.
         """
         # Each character in MicroPython's built-in font is 8 px wide.
         char_px    = 8
@@ -143,6 +144,24 @@ class Billboard:
                 self._matrix.blit(fb, -offset, 0)
                 self._matrix.show()
                 time.sleep_ms(delay_ms)
+
+    def scroll_text(self, msg, delay_ms=60, repeat=1):
+        """
+        Scroll text from right to left across the display (non-blocking).
+
+        Parameters
+        ----------
+        msg      : string to display
+        delay_ms : milliseconds between each one-pixel shift
+        repeat   : how many times to scroll the message
+        
+        Runs in background thread if available; blocks otherwise.
+        """
+        if _THREAD:
+            _thread.start_new_thread(self._scroll_text_blocking, (msg, delay_ms, repeat))
+        else:
+            # Fallback: run blocking if threading not available
+            self._scroll_text_blocking(msg, delay_ms, repeat)
 
     # ------------------------------------------------------------------
     # Low-level pixel access

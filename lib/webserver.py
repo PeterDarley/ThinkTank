@@ -47,13 +47,21 @@ class WebServer:
         # route table: map URL path -> view function
         # view signature: func(request) -> bytes|str|(bytes, content_type)|(str, content_type)
         self.routes = {}
+        # lock for thread-safe route access if _thread is available
+        self._routes_lock = _thread.allocate_lock() if _THREAD else None
 
     def add_route(self, url, view_func):
         """Register a view function for a specific URL path.
 
         Example: `srv.add_route('/status', status_view)`
+        
+        Thread-safe: can be called while the server is running.
         """
-        self.routes[url] = view_func
+        if self._routes_lock:
+            with self._routes_lock:
+                self.routes[url] = view_func
+        else:
+            self.routes[url] = view_func
 
     def route(self, url):
         """Decorator variant for registering a route.
@@ -107,12 +115,23 @@ class WebServer:
                 path, query = raw_path, ''
 
             # Routes take precedence. If a route exists for this path, call it.
-            if path in self.routes:
+            if self.debug:
+                print('websrv: checking route for path:', path, 'available routes:', list(self.routes.keys()))
+            
+            # Check for route (thread-safe lookup)
+            route_handler = None
+            if self._routes_lock:
+                with self._routes_lock:
+                    route_handler = self.routes.get(path)
+            else:
+                route_handler = self.routes.get(path)
+            
+            if route_handler:
                 if self.debug:
                     print('websrv: routing to', path)
                 try:
                     request_obj = {'method': method, 'path': path, 'query': query, 'raw_path': raw_path}
-                    res = self.routes[path](request_obj)
+                    res = route_handler(request_obj)
                     # normalize response formats
                     if res is None:
                         cl_sock.send(b"HTTP/1.0 204 No Content\r\n\r\n")
@@ -248,6 +267,10 @@ class WebServer:
         return 'application/octet-stream'
 
     def start(self):
+        if self._running:
+            if self.debug:
+                print('websrv: already running')
+            return
         addr = socket.getaddrinfo(self.host, self.port)[0][-1]
         s = socket.socket()
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -255,8 +278,8 @@ class WebServer:
         s.listen(5)
         self._sock = s
         self._running = True
-        print('WebServer listening on', addr)
         if self.debug:
+            print('WebServer listening on', addr)
             print('websrv: entering main accept loop')
         try:
             while self._running:
@@ -285,6 +308,10 @@ class WebServer:
     def start_in_thread(self):
         if not _THREAD:
             raise RuntimeError('threading not available on this build')
+        if self._running:
+            if self.debug:
+                print('websrv: already running in thread')
+            return
         if self.debug:
             print('websrv: starting server in background thread')
         _thread.start_new_thread(self.start, ())

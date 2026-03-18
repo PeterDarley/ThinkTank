@@ -6,7 +6,7 @@ from collections import OrderedDict
 
 from machine import Pin, Timer, I2C             # type: ignore
 from network import WLAN, STA_IF                # type: ignore
-from time import time_ns    
+from time import time_ns, time, sleep    
 from struct import unpack                       # type: ignore
 
 mf = __import__("micropython-fusion")
@@ -26,8 +26,16 @@ class WIFIManager:
 
         return cls.instance
 
-    def __init__(self, *, ssid: str=None, password: str=None, callback: callable=None):
-        """ Initialize the WIFI connection. """
+    def __init__(self, *, ssid: str=None, password: str=None, callback: callable=None, block: bool=False, timeout: float=10):
+        """ Initialize the WIFI connection. 
+        
+        Args:
+            ssid: WiFi SSID (default from settings)
+            password: WiFi password (default from settings)
+            callback: callable to invoke when connected (optional)
+            block: if True, block until connected or timeout (default False)
+            timeout: max seconds to wait if block=True (default 10)
+        """
 
         # Always update the callback even on subsequent singleton calls
         if callback:
@@ -53,6 +61,16 @@ class WIFIManager:
 
             if settings.WIFI.get("Print_on_connect"):
                 print(self)
+            
+            # Block until connected if requested
+            if block:
+                start = time()
+                while not self.is_connected and (time() - start) < timeout:
+                    sleep(0.1)
+                if not self.is_connected:
+                    print(f"WiFi: timeout after {timeout}s, not connected")
+                else:
+                    print(f"WiFi: connected in {time() - start:.1f}s")
 
     @property
     def is_connected(self):
