@@ -20,16 +20,41 @@ foreach ($a in $args) {
 }
 if (-not $port) { $port = 'COM3' }
 
-# Hardware-reset via RTS pin -- no REPL needed, safe even when webserver is running.
-Write-Output "Hardware resetting device on $port..."
-& python "$PSScriptRoot\tools\reset_device.py" $port 2
-if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Reset script failed -- board may need manual reset."
+# NOTE: No hardware reset before upload intentionally.
+# The device must already be at a quiet REPL (webserver stopped) before running this script.
+# To stop the webserver from the REPL: WebServer().stop()
+# A reboot is performed at the END to apply the new code (unless --noreboot is passed).
+
+# Copy project files to device in a single mpremote session using chained commands.
+Write-Output "Uploading to $port..."
+
+# Build a single chained mpremote invocation: connect once, copy everything.
+# mpremote supports chaining commands with '+' in a single session.
+$cpArgs = [System.Collections.Generic.List[string]]::new()
+$cpArgs.Add('connect')
+$cpArgs.Add($port)
+
+$first = $true
+foreach ($f in (Get-ChildItem -Path $PSScriptRoot -Filter *.py)) {
+    Write-Output "  $($f.Name)"
+    if (-not $first) { $cpArgs.Add('+') }
+    $cpArgs.AddRange([string[]]@('fs', 'cp', $f.FullName, ':'))
+    $first = $false
 }
 
-# Copy project files to device.
-Write-Output "Uploading to $port..."
-& $mpremote connect $port fs cp -r boot.py main.py settings.py lib/ www/ :
+if (Test-Path (Join-Path $PSScriptRoot 'lib')) {
+    Write-Output "  lib/"
+    $cpArgs.Add('+')
+    $cpArgs.AddRange([string[]]@('fs', 'cp', '-r', (Join-Path $PSScriptRoot 'lib'), ':'))
+}
+
+if (Test-Path (Join-Path $PSScriptRoot 'www')) {
+    Write-Output "  www/"
+    $cpArgs.Add('+')
+    $cpArgs.AddRange([string[]]@('fs', 'cp', '-r', (Join-Path $PSScriptRoot 'www'), ':'))
+}
+
+& $mpremote @cpArgs
 
 # Optionally reboot after upload so new code runs immediately.
 if (-not $noreboot) {
