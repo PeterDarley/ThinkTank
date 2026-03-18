@@ -1,13 +1,16 @@
-from webserver import WebServer
+from webserver import View, render_template
 from billboard import Billboard
 
-web_server = WebServer()
+
 billboard = Billboard.from_settings(debug=True)
 
-@web_server.route("/test")
-def test(request):
-    """Function to produce a test url"""
+class TestView(View):
 
-    billboard.scroll_text("Cindy Rocks!", delay_ms=60)
+    route = "/test"
 
-    return "Test URL"
+    def get(self):
+        """Handle GET requests for the /test route."""
+
+        billboard.scroll_text("Cindy Rocks!", delay_ms=60)
+
+        return render_template("template_test.html", {"message": "Cindy Rocks!"})

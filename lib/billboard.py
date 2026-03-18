@@ -51,6 +51,8 @@ class Billboard:
 
         self._matrix = Matrix8x8(spi, cs_pin, num)
         self._matrix.brightness(brightness)
+        self._scroll_stop = False
+        self._scrolling = False
 
         if debug:
             print('billboard: init ok,', num, 'module(s), brightness', brightness)
@@ -121,43 +123,62 @@ class Billboard:
         Internal: Scroll text from right to left (blocking).
         Use scroll_text() instead, which runs this in the background.
         """
-        # Each character in MicroPython's built-in font is 8 px wide.
-        char_px    = 8
-        padding_px = self.width                         # blank run before/after
-        text_px    = len(msg) * char_px
-        total_px   = padding_px + text_px + padding_px  # always a multiple of 8
+        self._scrolling = True
+        self._scroll_stop = False
+        try:
+            # Each character in MicroPython's built-in font is 8 px wide.
+            char_px    = 8
+            padding_px = self.width                         # blank run before/after
+            text_px    = len(msg) * char_px
+            total_px   = padding_px + text_px + padding_px  # always a multiple of 8
 
-        # Build a temp FrameBuffer to hold the full rendered message.
-        tmp_buf = bytearray(total_px)                   # MONO_HLSB: total_px/8 * 8 bytes
-        fb = framebuf.FrameBuffer(tmp_buf, total_px, 8, framebuf.MONO_HLSB)
-        fb.fill(0)
-        fb.text(msg, padding_px, 0, 1)
+            # Build a temp FrameBuffer to hold the full rendered message.
+            tmp_buf = bytearray(total_px)                   # MONO_HLSB: total_px/8 * 8 bytes
+            fb = framebuf.FrameBuffer(tmp_buf, total_px, 8, framebuf.MONO_HLSB)
+            fb.fill(0)
+            fb.text(msg, padding_px, 0, 1)
 
-        if self._debug:
-            print('billboard: scroll_text:', repr(msg),
-                  'total_px:', total_px, 'frames:', total_px - self.width + 1)
+            if self._debug:
+                print('billboard: scroll_text:', repr(msg),
+                      'total_px:', total_px, 'frames:', total_px - self.width + 1)
 
-        for _ in range(repeat):
-            for offset in range(total_px - self.width + 1):
-                self._matrix.fill(0)
-                # blit at negative x so fb column `offset` aligns with display column 0
-                self._matrix.blit(fb, -offset, 0)
-                self._matrix.show()
-                time.sleep_ms(delay_ms)
+            for _ in range(repeat):
+                for offset in range(total_px - self.width + 1):
+                    if self._scroll_stop:
+                        if self._debug:
+                            print('billboard: scroll cancelled')
+                        return
+                    self._matrix.fill(0)
+                    # blit at negative x so fb column `offset` aligns with display column 0
+                    self._matrix.blit(fb, -offset, 0)
+                    self._matrix.show()
+                    time.sleep_ms(delay_ms)
+        finally:
+            self._scrolling = False
 
     def scroll_text(self, msg, delay_ms=60, repeat=1):
         """
         Scroll text from right to left across the display (non-blocking).
+
+        If a scroll is already in progress it is cancelled and the new
+        message starts once the previous thread has exited.
 
         Parameters
         ----------
         msg      : string to display
         delay_ms : milliseconds between each one-pixel shift
         repeat   : how many times to scroll the message
-        
+
         Runs in background thread if available; blocks otherwise.
         """
         if _THREAD:
+            if self._scrolling:
+                if self._debug:
+                    print('billboard: cancelling in-flight scroll')
+                self._scroll_stop = True
+                # Wait for the previous thread to finish before starting a new one.
+                while self._scrolling:
+                    time.sleep_ms(10)
             _thread.start_new_thread(self._scroll_text_blocking, (msg, delay_ms, repeat))
         else:
             # Fallback: run blocking if threading not available

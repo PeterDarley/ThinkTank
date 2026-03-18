@@ -26,6 +26,51 @@ try:
 except Exception:
     _THREAD = False
 
+
+def render_template(template_file, context=None, templates_dir='templates'):
+    """Load a template file and substitute ``{{ key }}`` placeholders.
+
+    Args:
+        template_file: Filename inside *templates_dir* (e.g. ``'index.html'``).
+        context: Dict of values to substitute. Keys missing from the template
+                 are ignored; placeholders with no matching key become ``''``.
+        templates_dir: Directory to load templates from (default ``'templates'``).
+
+    Returns:
+        The rendered string, or ``None`` if the file could not be read.
+    """
+
+    if context is None:
+        context = {}
+
+    tpl_path = '/'.join((templates_dir.rstrip('/'), template_file))
+    try:
+        with open(tpl_path, 'rb') as f:
+            data = f.read()
+    except Exception:
+        return None
+
+    text = data.decode('utf-8') if isinstance(data, (bytes, bytearray)) else str(data)
+
+    # Replace known context keys (handle common spacing variants).
+    for key, val in context.items():
+        sval = '' if val is None else str(val)
+        text = text.replace('{{ ' + key + ' }}', sval)
+        text = text.replace('{{' + key + '}}', sval)
+        text = text.replace('{{ ' + key + '}}', sval)
+        text = text.replace('{{' + key + ' }}', sval)
+
+    # Erase any remaining {{ ... }} placeholders not present in context.
+    while '{{' in text:
+        start = text.index('{{')
+        end = text.find('}}', start)
+        if end == -1:
+            break
+        text = text[:start] + text[end + 2:]
+
+    return text
+
+
 class WebServer:
     _instance = None
 
@@ -50,51 +95,72 @@ class WebServer:
         # lock for thread-safe route access if _thread is available
         self._routes_lock = _thread.allocate_lock() if _THREAD else None
 
-    def add_route(self, url, view_func):
-        """Register a view function for a specific URL path.
+    def _log(self, *args):
+        """Print a debug message if debug mode is enabled."""
 
-        Example: `srv.add_route('/status', status_view)`
-        
-        Thread-safe: can be called while the server is running.
-        """
+        if self.debug:
+            try:
+                print(*args)
+            except Exception:
+                pass
+
+    def _get_route(self, path):
+        """Thread-safe route lookup by path."""
+
+        if self._routes_lock:
+            with self._routes_lock:
+                return self.routes.get(path)
+        return self.routes.get(path)
+
+    def add_route(self, url, view_func):
+        """Register a view function for a specific URL path."""
+
         if self._routes_lock:
             with self._routes_lock:
                 self.routes[url] = view_func
         else:
             self.routes[url] = view_func
 
-    def route(self, url):
-        """Decorator variant for registering a route.
+    def add_routes(self, routes):
+        """Register multiple routes at once.
 
-        Example:
-            @srv.route('/status')
-            def status_view(req):
-                return (b'ok', 'text/plain')
+        Args:
+            routes: A dict mapping URL paths to view functions,
+                   or a list of (url, view_func) tuples.
         """
+
+        items = routes.items() if isinstance(routes, dict) else routes
+        if self._routes_lock:
+            with self._routes_lock:
+                for url, view_func in items:
+                    self.routes[url] = view_func
+        else:
+            for url, view_func in items:
+                self.routes[url] = view_func
+
+    def route(self, url):
+        """Decorator variant for registering a route."""
+
         def _decorator(fn):
             self.add_route(url, fn)
             return fn
         return _decorator
 
     def _handle_client(self, cl_sock):
+        """Read one HTTP request from *cl_sock* and send a response."""
+
         try:
-            if self.debug:
-                try:
-                    peer = cl_sock.getpeername()
-                    print('websrv: accepted connection from', peer)
-                except Exception:
-                    pass
+            try:
+                self._log('websrv: accepted connection from', cl_sock.getpeername())
+            except Exception:
+                pass
             req = cl_sock.recv(2048)
             if not req:
                 return
 
             # parse request line
             first_line = req.split(b"\r\n", 1)[0]
-            if self.debug:
-                try:
-                    print('websrv: request:', first_line)
-                except Exception:
-                    pass
+            self._log('websrv: request:', first_line)
             parts = first_line.split()
             if len(parts) < 2:
                 return
@@ -103,10 +169,8 @@ class WebServer:
 
             # only support GET for now
             if method != 'GET':
-                if self.debug:
-                    print('websrv: unsupported method', method)
-                cl_sock.send(b"HTTP/1.0 405 Method Not Allowed\r\n\r\n")
-                return
+                self._log('websrv: unsupported method', method)
+                return self._send_response(cl_sock, 405, 'Method Not Allowed', b'', 'text/plain')
 
             # split query string if present
             if '?' in raw_path:
@@ -114,95 +178,49 @@ class WebServer:
             else:
                 path, query = raw_path, ''
 
-            # Routes take precedence. If a route exists for this path, call it.
-            if self.debug:
-                print('websrv: checking route for path:', path, 'available routes:', list(self.routes.keys()))
-            
-            # Check for route (thread-safe lookup)
-            route_handler = None
-            if self._routes_lock:
-                with self._routes_lock:
-                    route_handler = self.routes.get(path)
-            else:
-                route_handler = self.routes.get(path)
-            
-            if route_handler:
-                if self.debug:
-                    print('websrv: routing to', path)
-                try:
-                    request_obj = {'method': method, 'path': path, 'query': query, 'raw_path': raw_path}
-                    res = route_handler(request_obj)
-                    # normalize response formats
-                    if res is None:
-                        cl_sock.send(b"HTTP/1.0 204 No Content\r\n\r\n")
-                        return
-                    if isinstance(res, tuple) and len(res) == 2:
-                        content, content_type = res
-                        if isinstance(content, str):
-                            content = content.encode('utf-8')
-                    elif isinstance(res, bytes):
-                        content = res
-                        content_type = 'application/octet-stream'
-                    elif isinstance(res, str):
-                        content = res.encode('utf-8')
-                        content_type = 'text/html'
-                    else:
-                        # unsupported return
-                        cl_sock.send(b"HTTP/1.0 500 Internal Server Error\r\n\r\n")
-                        return
+            # Routes take precedence
+            self._log('websrv: checking route for path:', path, 'available routes:', list(self.routes.keys()))
+            route_handler = self._get_route(path)
 
-                    headers = 'HTTP/1.0 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n'.format(content_type, len(content))
-                    cl_sock.send(bytes(headers, 'utf-8'))
-                    cl_sock.send(content)
-                    return
+            if route_handler:
+                self._log('websrv: routing to', path)
+                try:
+                    req = Request(method=method, path=path, query=query, raw_path=raw_path, headers={})
+                    if isinstance(route_handler, type) and issubclass(route_handler, View):
+                        res = route_handler().dispatch(req)
+                    elif isinstance(route_handler, View):
+                        res = route_handler.dispatch(req)
+                    else:
+                        res = route_handler(req)
+
+                    return self._send_result(cl_sock, res)
                 except Exception as e:
-                    if self.debug:
-                        try:
-                            print('websrv: route handler exception:', e)
-                        except Exception:
-                            pass
-                    try:
-                        cl_sock.send(b"HTTP/1.0 500 Internal Server Error\r\n\r\n")
-                    except Exception:
-                        pass
-                    return
+                    self._log('websrv: route handler exception:', e)
+                    return self._send_response(cl_sock, 500, 'Internal Server Error', b'', 'text/plain')
 
             # No route matched — fall back to static file handling
             if path == '/' or path == '/index.html':
                 content, content_type = self._load_index()
                 if content is None:
-                    if self.debug:
-                        print('websrv: no index found, returning default page')
-                    body = b"<html><body><h1>OK</h1></body></html>"
+                    self._log('websrv: no index found, returning default page')
+                    content = b"<html><body><h1>OK</h1></body></html>"
                     content_type = 'text/html'
-                    content = body
             else:
-                # very small file serving: map path to www_dir
                 safe_path = path.lstrip('/')
                 file_path = '/'.join((self.www_dir, safe_path))
-                if self._exists(file_path):
-                    if self.debug:
-                        print('websrv: serving file', file_path)
+                if self._file_exists(file_path):
+                    self._log('websrv: serving file', file_path)
                     content = self._readfile(file_path)
                     content_type = self._guess_mime(file_path)
                 else:
-                    if self.debug:
-                        print('websrv: file not found', file_path)
-                    cl_sock.send(b"HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n\r\nNot Found")
-                    return
+                    self._log('websrv: file not found', file_path)
+                    return self._send_response(cl_sock, 404, 'Not Found', b'Not Found', 'text/plain')
 
-            headers = 'HTTP/1.0 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n'.format(content_type, len(content))
-            cl_sock.send(bytes(headers, 'utf-8'))
-            cl_sock.send(content)
+            return self._send_response(cl_sock, 200, 'OK', content, content_type)
         except Exception as e:
-            if self.debug:
-                try:
-                    import sys
-                    print('websrv: handler exception:', e)
-                except Exception:
-                    pass
+            self._log('websrv: handler exception:', e)
             try:
-                cl_sock.send(b"HTTP/1.0 500 Internal Server Error\r\n\r\n")
+                self._send_response(cl_sock, 500, 'Internal Server Error', b'', 'text/plain')
             except Exception:
                 pass
         finally:
@@ -212,133 +230,286 @@ class WebServer:
                 pass
             gc.collect()
 
-    def _exists(self, path):
+    def _file_exists(self, path):
+        """Return True if *path* exists on the filesystem."""
+
         try:
-            # prefer stat-like check
-            try:
-                return self._file_exists(path)
-            except Exception:
-                return path in os.listdir('/') or ("/" + path) in os.listdir('/')
+            os.stat(path)
+            return True
         except Exception:
-            # fallback to try/catch open
-            try:
-                f = open(path, 'rb')
-                f.close()
-                return True
-            except Exception:
-                return False
+            return False
 
     def _readfile(self, path):
+        """Return contents of *path* as bytes, or None on error."""
+
         try:
-            if self.debug:
-                print('websrv: reading file', path)
+            self._log('websrv: reading file', path)
             with open(path, 'rb') as f:
                 return f.read()
         except Exception:
             return None
 
     def _load_index(self):
+        """Try to load www/index.html; return (bytes, mime) or (None, None)."""
+
         idx = self.www_dir + '/index.html'
         if self._file_exists(idx):
-            if self.debug:
-                print('websrv: found index at', idx)
-            data = self._readfile(idx)
-            return data, 'text/html'
+            self._log('websrv: found index at', idx)
+            return self._readfile(idx), 'text/html'
         return None, None
 
-    def _file_exists(self, path):
-        try:
-            st = os.stat(path)
-            return True
-        except Exception:
-            return False
+    _MIME = {
+        '.html': 'text/html',
+        '.css': 'text/css',
+        '.js': 'application/javascript',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+    }
 
     def _guess_mime(self, filename):
-        if filename.endswith('.html'):
-            return 'text/html'
-        if filename.endswith('.css'):
-            return 'text/css'
-        if filename.endswith('.js'):
-            return 'application/javascript'
-        if filename.endswith('.png'):
-            return 'image/png'
-        if filename.endswith('.jpg') or filename.endswith('.jpeg'):
-            return 'image/jpeg'
+        """Return a MIME type for *filename* based on its extension."""
+
+        for ext, mime in self._MIME.items():
+            if filename.endswith(ext):
+                return mime
         return 'application/octet-stream'
 
+    def _send_response(self, cl_sock, status_code, reason, content, content_type='text/html'):
+        """Send an HTTP response to the client socket."""
+
+        try:
+            if isinstance(content, str):
+                body_bytes = content.encode('utf-8')
+            else:
+                body_bytes = content or b''
+            header = 'HTTP/1.0 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n'.format(
+                status_code, reason, content_type, len(body_bytes))
+            cl_sock.send(header.encode('utf-8'))
+            if body_bytes:
+                cl_sock.send(body_bytes)
+        except Exception:
+            pass
+
+    def _send_result(self, cl_sock, res):
+        """Normalise a route handler return value and send it as a response."""
+
+        if res is None:
+            return self._send_response(cl_sock, 204, 'No Content', b'', 'text/plain')
+        if isinstance(res, Response):
+            return self._send_response(cl_sock, res.status, res.reason, res.to_bytes(), res.content_type)
+        if isinstance(res, tuple) and len(res) == 2:
+            return self._send_response(cl_sock, 200, 'OK', res[0], res[1])
+        if isinstance(res, bytes):
+            return self._send_response(cl_sock, 200, 'OK', res, 'application/octet-stream')
+        if isinstance(res, str):
+            return self._send_response(cl_sock, 200, 'OK', res, 'text/html')
+        return self._send_response(cl_sock, 500, 'Internal Server Error', b'', 'text/plain')
+
     def start(self):
+        """Start the server (blocking)."""
+
         if self._running:
-            if self.debug:
-                print('websrv: already running')
+            self._log('websrv: already running')
             return
-        addr = socket.getaddrinfo(self.host, self.port)[0][-1]
-        s = socket.socket()
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        # Retry bind a few times — after a soft reset the old socket may
-        # linger briefly in the lwIP stack before becoming available.
+        server_address = socket.getaddrinfo(self.host, self.port)[0][-1]
+        # Retry socket creation — after a soft reset lingering FDs may briefly
+        # exhaust the table before lwIP releases them.
+        for creation_attempt in range(10):
+            try:
+                server_socket = socket.socket()
+                break
+            except OSError as creation_error:
+                if creation_error.args[0] == 23 and creation_attempt < 9:  # ENFILE
+                    import time
+                    gc.collect()
+                    time.sleep_ms(200)
+                else:
+                    raise
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Retry bind — after a soft reset the old socket may linger briefly.
         for attempt in range(5):
             try:
-                s.bind(addr)
+                server_socket.bind(server_address)
                 break
             except OSError:
                 if attempt == 4:
-                    s.close()
+                    server_socket.close()
                     raise
                 import time
                 time.sleep_ms(500)
-        s.listen(5)
-        self._sock = s
+        server_socket.listen(1)
+        self._sock = server_socket
         self._running = True
-        if self.debug:
-            print('WebServer listening on', addr)
-            print('websrv: entering main accept loop')
+        self._log('WebServer listening on', server_address)
         try:
             while self._running:
-                cl, remote = s.accept()
-                # handle in-line (small server). For heavier load, integrate _thread handling.
+                try:
+                    client_socket, remote_address = server_socket.accept()
+                except OSError as accept_error:
+                    if accept_error.args[0] == 23:  # ENFILE: FD table full, back off
+                        import time
+                        gc.collect()
+                        time.sleep_ms(100)
+                        continue
+                    raise
                 if _THREAD:
                     try:
-                        if self.debug:
-                            print('websrv: spawning thread for client', remote)
-                        _thread.start_new_thread(self._handle_client, (cl,))
-                    except Exception as e:
-                        if self.debug:
-                            print('websrv: failed to spawn thread, handling inline', e)
-                        self._handle_client(cl)
+                        self._log('websrv: spawning thread for client', remote_address)
+                        _thread.start_new_thread(self._handle_client, (client_socket,))
+                    except Exception as thread_error:
+                        self._log('websrv: failed to spawn thread, handling inline', thread_error)
+                        self._handle_client(client_socket)
                 else:
-                    if self.debug:
-                        print('websrv: handling client inline', remote)
-                    self._handle_client(cl)
+                    self._log('websrv: handling client inline', remote_address)
+                    self._handle_client(client_socket)
         finally:
             try:
-                s.close()
+                server_socket.close()
             except Exception:
                 pass
             self._running = False
 
     def start_in_thread(self):
+        """Start the server in a background thread."""
+
         if not _THREAD:
             raise RuntimeError('threading not available on this build')
         if self._running:
-            if self.debug:
-                print('websrv: already running in thread')
+            self._log('websrv: already running in thread')
             return
-        if self.debug:
-            print('websrv: starting server in background thread')
+        self._log('websrv: starting server in background thread')
         _thread.start_new_thread(self.start, ())
 
     def stop(self):
+        """Stop the server."""
+
         self._running = False
         try:
             if self._sock:
                 self._sock.close()
         except Exception:
             pass
-        if self.debug:
-            print('websrv: stop requested')
+        self._sock = None
+        self._log('websrv: stop requested')
+
+class Request:
+    """Represents an HTTP request.
+
+    Attributes:
+        method: HTTP method as string (e.g., 'GET').
+        path: The request path without query string (e.g., '/status').
+        query: The raw query string (e.g., 'a=1&b=2').
+        raw_path: The original requested path including query if any.
+        headers: dict of parsed headers (may be empty).
+        body: raw request body bytes or None.
+    """
+
+    def __init__(self, method, path, query='', raw_path=None, headers=None, body=None):
+        """Create a Request object.
+
+        The server currently provides minimal parsing: method, path, and query.
+        Headers and body are left empty unless further parsing is implemented.
+        """
+        self.method = method
+        self.path = path
+        self.query = query
+        self.raw_path = raw_path
+        self.headers = headers or {}
+        self.body = body
 
 
-# convenience function
-def start_simple(port=80, www_dir='www'):
-    srv = WebServer(port=port, www_dir=www_dir)
-    srv.start()
+class Response:
+    """Represents an HTTP response.
+
+    Attributes:
+        status: HTTP status code (int).
+        reason: Short reason phrase (str).
+        body: Response body, either `bytes` or `str`.
+        content_type: MIME type string.
+        headers: Optional dict of extra headers.
+    """
+
+    def __init__(self, status=200, reason='OK', body=b'', content_type='text/html', headers=None):
+        self.status = status
+        self.reason = reason
+        self.body = body
+        self.content_type = content_type
+        self.headers = headers or {}
+
+    def to_bytes(self):
+        """Return the body as bytes."""
+        if isinstance(self.body, bytes):
+            return self.body
+        if isinstance(self.body, str):
+            return self.body.encode('utf-8')
+        return str(self.body).encode('utf-8')
+
+    def __str__(self):
+        try:
+            if isinstance(self.body, bytes):
+                return self.body.decode('utf-8', 'replace')
+            return str(self.body)
+        except Exception:
+            return repr(self.body)
+
+
+class View:
+    """Base class for a web server view."""
+
+    route = None
+
+    def dispatch(self, request):
+        """Handle a request for this view.
+
+        Args:
+            request (Request): The HTTP request to handle.
+
+        Returns:
+            Response: The HTTP response.
+        """
+
+        self.request = request
+
+        if request.method == 'GET':
+            return self.get()
+        elif request.method == 'POST':
+            return self.post()
+        elif request.method == 'PUT':
+            return self.put()
+        elif request.method == 'DELETE':
+            return self.delete()
+        else:
+            return Response(405, 'Method Not Allowed')
+            
+    def get(self) -> Response:
+        """Handle a GET request.
+
+        Returns:
+            Response: The HTTP response.
+        """
+        return Response(200, 'OK', b'GET response')
+    
+    def post(self) -> Response:
+        """Handle a POST request.
+
+        Returns:
+            Response: The HTTP response.
+        """
+        return Response(200, 'OK', b'POST response')
+    
+    def put(self) -> Response:
+        """Handle a PUT request.
+
+        Returns:
+            Response: The HTTP response.
+        """
+        return Response(200, 'OK', b'PUT response')
+    
+    def delete(self) -> Response:
+        """Handle a DELETE request.
+
+        Returns:
+            Response: The HTTP response.
+        """
+        return Response(200, 'OK', b'DELETE response')
