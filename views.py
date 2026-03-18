@@ -8,6 +8,6 @@ billboard = Billboard.from_settings(debug=True)
 def test(request):
     """Function to produce a test url"""
 
-    billboard.scroll_text("Hello World!  ", delay_ms=60)
+    billboard.scroll_text("Cindy Rocks!", delay_ms=60)
 
     return "Test URL"

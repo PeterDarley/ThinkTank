@@ -51,4 +51,11 @@ if (Test-Path (Join-Path $PSScriptRoot 'www')) {
 
 & $mpremote @cpArgs
 
+# Soft reset device to reload boot.py/main.py with new files.
+# A fresh connect without --no-soft-reset will trigger soft reset on disconnect.
+Write-Output "Soft resetting device..."
+$ErrorActionPreference = 'Continue'
+& $mpremote connect $port exec "pass" 2>$null
+$ErrorActionPreference = 'Stop'
+
 Write-Output "Upload complete."

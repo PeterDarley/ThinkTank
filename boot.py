@@ -33,6 +33,13 @@ WIFIManager(block=True)
 web_server = WebServer()
 web_server.start_in_thread()
 
+# Import views to register routes
+try:
+    import views
+    print("views imported")
+except Exception as e:
+    print('boot: failed to import views:', e)
+
 # Start the I2C
 # I2CManager()
 

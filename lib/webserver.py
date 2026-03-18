@@ -274,7 +274,18 @@ class WebServer:
         addr = socket.getaddrinfo(self.host, self.port)[0][-1]
         s = socket.socket()
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(addr)
+        # Retry bind a few times — after a soft reset the old socket may
+        # linger briefly in the lwIP stack before becoming available.
+        for attempt in range(5):
+            try:
+                s.bind(addr)
+                break
+            except OSError:
+                if attempt == 4:
+                    s.close()
+                    raise
+                import time
+                time.sleep_ms(500)
         s.listen(5)
         self._sock = s
         self._running = True
