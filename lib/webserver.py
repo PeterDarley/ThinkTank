@@ -44,6 +44,29 @@ class WebServer:
         self._sock = None
         self._running = False
         self.debug = debug
+        # route table: map URL path -> view function
+        # view signature: func(request) -> bytes|str|(bytes, content_type)|(str, content_type)
+        self.routes = {}
+
+    def add_route(self, url, view_func):
+        """Register a view function for a specific URL path.
+
+        Example: `srv.add_route('/status', status_view)`
+        """
+        self.routes[url] = view_func
+
+    def route(self, url):
+        """Decorator variant for registering a route.
+
+        Example:
+            @srv.route('/status')
+            def status_view(req):
+                return (b'ok', 'text/plain')
+        """
+        def _decorator(fn):
+            self.add_route(url, fn)
+            return fn
+        return _decorator
 
     def _handle_client(self, cl_sock):
         try:
@@ -53,10 +76,10 @@ class WebServer:
                     print('websrv: accepted connection from', peer)
                 except Exception:
                     pass
-
             req = cl_sock.recv(2048)
             if not req:
                 return
+
             # parse request line
             first_line = req.split(b"\r\n", 1)[0]
             if self.debug:
@@ -68,7 +91,7 @@ class WebServer:
             if len(parts) < 2:
                 return
             method = parts[0].decode()
-            path = parts[1].decode()
+            raw_path = parts[1].decode()
 
             # only support GET for now
             if method != 'GET':
@@ -77,6 +100,55 @@ class WebServer:
                 cl_sock.send(b"HTTP/1.0 405 Method Not Allowed\r\n\r\n")
                 return
 
+            # split query string if present
+            if '?' in raw_path:
+                path, query = raw_path.split('?', 1)
+            else:
+                path, query = raw_path, ''
+
+            # Routes take precedence. If a route exists for this path, call it.
+            if path in self.routes:
+                if self.debug:
+                    print('websrv: routing to', path)
+                try:
+                    request_obj = {'method': method, 'path': path, 'query': query, 'raw_path': raw_path}
+                    res = self.routes[path](request_obj)
+                    # normalize response formats
+                    if res is None:
+                        cl_sock.send(b"HTTP/1.0 204 No Content\r\n\r\n")
+                        return
+                    if isinstance(res, tuple) and len(res) == 2:
+                        content, content_type = res
+                        if isinstance(content, str):
+                            content = content.encode('utf-8')
+                    elif isinstance(res, bytes):
+                        content = res
+                        content_type = 'application/octet-stream'
+                    elif isinstance(res, str):
+                        content = res.encode('utf-8')
+                        content_type = 'text/html'
+                    else:
+                        # unsupported return
+                        cl_sock.send(b"HTTP/1.0 500 Internal Server Error\r\n\r\n")
+                        return
+
+                    headers = 'HTTP/1.0 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n'.format(content_type, len(content))
+                    cl_sock.send(bytes(headers, 'utf-8'))
+                    cl_sock.send(content)
+                    return
+                except Exception as e:
+                    if self.debug:
+                        try:
+                            print('websrv: route handler exception:', e)
+                        except Exception:
+                            pass
+                    try:
+                        cl_sock.send(b"HTTP/1.0 500 Internal Server Error\r\n\r\n")
+                    except Exception:
+                        pass
+                    return
+
+            # No route matched — fall back to static file handling
             if path == '/' or path == '/index.html':
                 content, content_type = self._load_index()
                 if content is None:

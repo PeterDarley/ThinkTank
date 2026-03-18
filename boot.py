@@ -26,7 +26,8 @@ if hasattr(settings, "BOARD") and "CPU_Frequency" in settings.BOARD:
 web_server = WebServer(debug=True)
 
 # Start the WIFI and begin the web server after the connection is established
-WIFIManager(callback=web_server.start_in_thread)
+# WIFIManager(callback=web_server.start_in_thread)
+WIFIManager()
 
 # Start the I2C
 # I2CManager()
