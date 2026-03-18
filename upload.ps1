@@ -49,6 +49,12 @@ if (Test-Path (Join-Path $PSScriptRoot 'www')) {
     $cpArgs.AddRange([string[]]@('fs', 'cp', '-r', (Join-Path $PSScriptRoot 'www'), ':'))
 }
 
+if (Test-Path (Join-Path $PSScriptRoot 'templates')) {
+    Write-Output "  templates/"
+    $cpArgs.Add('+')
+    $cpArgs.AddRange([string[]]@('fs', 'cp', '-r', (Join-Path $PSScriptRoot 'templates'), ':'))
+}
+
 & $mpremote @cpArgs
 
 # Soft reset device to reload boot.py/main.py with new files.
