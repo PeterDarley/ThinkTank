@@ -24,3 +24,6 @@ All classes, functions, and methods should include a descriptive docstring. Docs
 ### Variable names
 Prefer long, descriptive variable names over short or abbreviated ones (e.g. `route_handler` not `rh`, `templates_dir` not `tdir`, `client_socket` not `cl`).
 
+### Blank lines after indented blocks
+Indented blocks (if/for/while/try/with/class/def bodies) should generally be followed by a blank line for readability.
+
