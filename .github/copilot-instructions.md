@@ -18,3 +18,9 @@ Uses **SPI** (not I2C). Pin mapping (set in `settings.BILLBOARD`):
 | VCC  | 5 V     | Power (must be 5 V, not 3.3 V) |
 | GND  | GND     | Common ground |
 
+### Docstrings
+All classes, functions, and methods should include a descriptive docstring. Docstrings MUST be followed by a single blank line.
+
+### Variable names
+Prefer long, descriptive variable names over short or abbreviated ones (e.g. `route_handler` not `rh`, `templates_dir` not `tdir`, `client_socket` not `cl`).
+
