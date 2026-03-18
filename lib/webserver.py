@@ -27,6 +27,49 @@ except Exception:
     _THREAD = False
 
 
+def _parse_form_data(body_string):
+    """Parse a URL-encoded form body into a dict of key->value pairs.
+
+    Handles ``application/x-www-form-urlencoded`` format as sent by HTML
+    forms and HTMX.
+    """
+
+    result = {}
+    if not body_string:
+        return result
+
+    for pair in body_string.split('&'):
+        if '=' in pair:
+            key, value = pair.split('=', 1)
+            result[_url_decode(key)] = _url_decode(value)
+        elif pair:
+            result[_url_decode(pair)] = ''
+
+    return result
+
+
+def _url_decode(encoded_string):
+    """Decode a URL-encoded string (replaces %XX sequences and + with space)."""
+
+    decoded = encoded_string.replace('+', ' ')
+    result = ''
+    index = 0
+
+    while index < len(decoded):
+        if decoded[index] == '%' and index + 2 < len(decoded):
+            try:
+                result += chr(int(decoded[index + 1:index + 3], 16))
+                index += 3
+            except ValueError:
+                result += decoded[index]
+                index += 1
+        else:
+            result += decoded[index]
+            index += 1
+
+    return result
+
+
 def render_template(template_file, context=None, templates_dir='templates'):
     """Load a template file and substitute ``{{ key }}`` placeholders.
 
@@ -186,12 +229,12 @@ class WebServer:
                 self._log('websrv: accepted connection from', cl_sock.getpeername())
             except Exception:
                 pass
-            req = cl_sock.recv(2048)
-            if not req:
+            request = cl_sock.recv(2048)
+            if not request:
                 return
 
             # parse request line
-            first_line = req.split(b"\r\n", 1)[0]
+            first_line = request.split(b"\r\n", 1)[0]
             self._log('websrv: request:', first_line)
             parts = first_line.split()
             if len(parts) < 2:
@@ -199,16 +242,20 @@ class WebServer:
             method = parts[0].decode()
             raw_path = parts[1].decode()
 
-            # only support GET for now
-            # if method != 'GET':
-            #     self._log('websrv: unsupported method', method)
-            #     return self._send_response(cl_sock, 405, 'Method Not Allowed', b'', 'text/plain')
-
             # split query string if present
             if '?' in raw_path:
                 path, query = raw_path.split('?', 1)
             else:
                 path, query = raw_path, ''
+
+            # parse body and form data from any request
+            raw_body = b''
+            form_data = {}
+            header_end = request.find(b'\r\n\r\n')
+            if header_end != -1:
+                raw_body = request[header_end + 4:]
+                if raw_body:
+                    form_data = _parse_form_data(raw_body.decode('utf-8', 'replace'))
 
             # Routes take precedence
             self._log('websrv: checking route for path:', path, 'available routes:', list(self.routes.keys()))
@@ -217,18 +264,22 @@ class WebServer:
             if route_handler:
                 self._log('websrv: routing to', path)
                 try:
-                    req = Request(method=method, path=path, query=query, raw_path=raw_path, headers={})
+                    request = Request(method=method, path=path, query=query, raw_path=raw_path, headers={}, body=raw_body, form_data=form_data)
                     if isinstance(route_handler, type) and issubclass(route_handler, View):
-                        res = route_handler().dispatch(req)
+                        response = route_handler().dispatch(request)
                     elif isinstance(route_handler, View):
-                        res = route_handler.dispatch(req)
+                        response = route_handler.dispatch(request)
                     else:
-                        res = route_handler(req)
+                        response = route_handler(request)
 
-                    return self._send_result(cl_sock, res)
+                    return self._send_result(cl_sock, response)
                 except Exception as e:
                     self._log('websrv: route handler exception:', e)
                     return self._send_response(cl_sock, 500, 'Internal Server Error', b'', 'text/plain')
+
+            # POST to an unmatched route is a 404
+            if method == 'POST':
+                return self._send_response(cl_sock, 404, 'Not Found', b'Not Found', 'text/plain')
 
             # No route matched — fall back to static file handling
             if path == '/' or path == '/index.html':
@@ -437,11 +488,11 @@ class Request:
         body: raw request body bytes or None.
     """
 
-    def __init__(self, method, path, query='', raw_path=None, headers=None, body=None):
+    def __init__(self, method, path, query='', raw_path=None, headers=None, body=None, form_data=None):
         """Create a Request object.
 
-        The server currently provides minimal parsing: method, path, and query.
-        Headers and body are left empty unless further parsing is implemented.
+        The server currently provides minimal parsing: method, path, query,
+        body, and form_data (for POST requests).
         """
         self.method = method
         self.path = path
@@ -449,6 +500,7 @@ class Request:
         self.raw_path = raw_path
         self.headers = headers or {}
         self.body = body
+        self.form_data = form_data or {}
 
 
 class Response:
@@ -524,6 +576,8 @@ class View:
     
     def post(self) -> Response:
         """Handle a POST request.
+
+        Form fields are available via ``self.request.form_data``.
 
         Returns:
             Response: The HTTP response.

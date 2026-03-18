@@ -28,4 +28,10 @@ class TestView(View):
     def post(self):
         """Handle POST requests for the /test route."""
         
-        billboard.scroll_text("Post", delay_ms=60)
+        message = "Post"
+
+        if "text_input" in self.request.form_data:
+            message = self.request.form_data["text_input"]
+
+
+        billboard.scroll_text(message, delay_ms=60)
