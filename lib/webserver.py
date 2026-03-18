@@ -457,8 +457,6 @@ class Response:
 class View:
     """Base class for a web server view."""
 
-    route = None
-
     def dispatch(self, request):
         """Handle a request for this view.
 
