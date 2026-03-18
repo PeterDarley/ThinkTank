@@ -30,6 +30,9 @@ except Exception:
 def render_template(template_file, context=None, templates_dir='templates'):
     """Load a template file and substitute ``{{ key }}`` placeholders.
 
+    Also supports ``{% include 'filename' %}`` to include other templates
+    with the same context.
+
     Args:
         template_file: Filename inside *templates_dir* (e.g. ``'index.html'``).
         context: Dict of values to substitute. Keys missing from the template
@@ -59,6 +62,35 @@ def render_template(template_file, context=None, templates_dir='templates'):
         text = text.replace('{{' + key + '}}', sval)
         text = text.replace('{{ ' + key + '}}', sval)
         text = text.replace('{{' + key + ' }}', sval)
+
+    # Handle template includes: {% include 'filename' %}
+    while '{%' in text:
+        start = text.find('{%')
+        end = text.find('%}', start)
+        if end == -1:
+            break
+
+        tag_content = text[start + 2:end].strip()
+        if tag_content.startswith('include'):
+            # Extract the filename from: include 'filename' or include "filename" or include filename
+            include_part = tag_content[7:].strip()
+            include_filename = None
+
+            if include_part.startswith('"') and '"' in include_part[1:]:
+                include_filename = include_part[1:include_part.index('"', 1)]
+            elif include_part.startswith("'") and "'" in include_part[1:]:
+                include_filename = include_part[1:include_part.index("'", 1)]
+            else:
+                include_filename = include_part.split()[0] if include_part else None
+
+            if include_filename:
+                included_content = render_template(include_filename, context, templates_dir)
+                if included_content is not None:
+                    text = text[:start] + included_content + text[end + 2:]
+                    continue
+
+        # If we get here, skip this tag (malformed include or other tag)
+        text = text[:start] + text[end + 2:]
 
     # Erase any remaining {{ ... }} placeholders not present in context.
     while '{{' in text:
@@ -168,9 +200,9 @@ class WebServer:
             raw_path = parts[1].decode()
 
             # only support GET for now
-            if method != 'GET':
-                self._log('websrv: unsupported method', method)
-                return self._send_response(cl_sock, 405, 'Method Not Allowed', b'', 'text/plain')
+            # if method != 'GET':
+            #     self._log('websrv: unsupported method', method)
+            #     return self._send_response(cl_sock, 405, 'Method Not Allowed', b'', 'text/plain')
 
             # split query string if present
             if '?' in raw_path:
@@ -468,6 +500,8 @@ class View:
         """
 
         self.request = request
+
+        print(f"Dispatching {request.method} request for {request.path}")
 
         if request.method == 'GET':
             return self.get()
