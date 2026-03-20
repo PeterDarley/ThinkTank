@@ -25,6 +25,20 @@ except Exception:
 
 
 class LEDs:
+    _instances = {}
+
+    def __new__(cls, pin=None, n=None, brightness=1.0, pin_inverted=False):
+        """Return an existing instance for the given pin, or create a new one."""
+        pin_num = pin if pin is not None else (NEOPIXELS["Pin"] if NEOPIXELS else None)
+
+        if pin_num in cls._instances:
+            return cls._instances[pin_num]
+
+        instance = super().__new__(cls)
+        instance._initialised = False
+        cls._instances[pin_num] = instance
+        return instance
+
     def __init__(self, pin=None, n=None, brightness=1.0, pin_inverted=False):
         """Create a neopixel LED strip controller.
 
@@ -32,6 +46,9 @@ class LEDs:
         - n: number of LEDs (defaults to NEOPIXELS['Num'] from settings)
         - brightness: float 0.0-1.0 to scale colors (default 1.0)
         """
+        if self._initialised:
+            return
+
         if neopixel is None:
             raise RuntimeError('neopixel module not available')
 
@@ -55,6 +72,7 @@ class LEDs:
         self._np = neopixel.NeoPixel(pin, self.n)
         self._brightness = 1.0
         self.brightness = brightness
+        self._initialised = True
 
     def _scale(self, color):
         if self._brightness >= 0.999:
