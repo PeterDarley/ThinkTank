@@ -79,17 +79,29 @@ class LEDs:
             return tuple(int(min(255, max(0, c))) for c in color)
         return tuple(int(min(255, max(0, int(c * self._brightness)))) for c in color)
 
-    def set(self, i, color):
-        """Set pixel `i` to `color` (r,g,b). Does not write to strip until `show()` is called."""
-        if i < 0 or i >= self.n:
-            return
-        self._np[i] = self._scale(color)
+    def set(self, target, color):
+        """Set pixel `target` to `color` (r,g,b). Does not write to strip until `show()` is called."""
+    
+        if isinstance(target, int):
+            if target < 0 or target >= self.n:
+                return
+            indexes = [target]
 
-    def get(self, i):
-        """Return the raw value currently staged for pixel `i` (after brightness scaling)."""
-        if i < 0 or i >= self.n:
+        elif isinstance(target, list):
+            indexes = [i for i in target if 0 <= i < self.n]
+
+        elif isinstance(target, str) and "-" in target:
+            start, end = map(int, target.split("-"))
+            indexes = list(range(start, end + 1))
+
+        for index in indexes:
+            self._np[index] = self._scale(color)
+
+    def get(self, index):
+        """Return the raw value currently staged for pixel `index` (after brightness scaling)."""
+        if index < 0 or index >= self.n:
             return (0, 0, 0)
-        return tuple(self._np[i])
+        return tuple(self._np[index])
 
     def fill(self, color):
         """Fill the entire strip with `color` (r,g,b)."""
@@ -142,8 +154,3 @@ class LEDs:
             return (0, 255 - pos * 3, pos * 3)
         pos -= 170
         return (pos * 3, 0, 255 - pos * 3)
-
-
-# convenience factory
-def WS(pin=2, n=8, brightness=1.0):
-    return WS2812(pin, n, brightness)

@@ -2,6 +2,7 @@ import time
 
 try:
     import _thread
+
     _THREAD = True
 except Exception:
     _THREAD = False
@@ -21,7 +22,7 @@ class Animation:
 
         return cls._instance
 
-    def __init__(self, jobs: dict = None):
+    def __init__(self, jobs: dict = None, stop_callbacks: dict = None):
         """Create our animation object."""
 
         if self._initialised:
@@ -33,6 +34,7 @@ class Animation:
         self.tick_number = 0
         self.frame_interval_ms = 25
         self.jobs = jobs if jobs is not None else {}
+        self.jobs_callbacks = stop_callbacks if stop_callbacks is not None else {}
 
     def add_job(self, name: str, job):
         """Add a job to the animation."""
@@ -41,7 +43,6 @@ class Animation:
             raise ValueError(f"Job with name '{name}' already exists.")
 
         self.jobs[name] = job
-
 
     def _run(self):
         """Internal thread target: loop calling tick() until stopped."""
@@ -71,9 +72,18 @@ class Animation:
 
         self.stopped = True
 
+        for name, callback in self.jobs_callbacks.items():
+            callback()
+
+    def reset(self):
+        """Reset the animation to its initial state."""
+
+        self.tick_number = 0
+
     def tick(self):
         """Perform one frame of the animation. Override in subclasses."""
 
         self.tick_number += 1
 
-        print("Running")
+        for name, job in self.jobs.items():
+            job(self.tick_number)
