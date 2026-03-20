@@ -2,10 +2,9 @@
 Simple WS2812 (NeoPixel) helper for MicroPython.
 
 Usage:
-    from ws2812b import WS2812
-    from machine import Pin
+    from leds import LEDs
 
-    strip = WS2812(pin=2, n=8, brightness=0.5)
+    strip = LEDs(brightness=0.5)
     strip.fill((255,0,0))
     strip.show()
 
@@ -19,17 +18,35 @@ try:
 except Exception:
     neopixel = None
 
+try:
+    from settings import NEOPIXELS
+except Exception:
+    NEOPIXELS = None
 
-class WS2812:
-    def __init__(self, pin, n, brightness=1.0, pin_inverted=False):
-        """Create a WS2812 controller.
 
-        - pin: integer GPIO pin number or `machine.Pin` instance
-        - n: number of LEDs
+class LEDs:
+    def __init__(self, pin=None, n=None, brightness=1.0, pin_inverted=False):
+        """Create a neopixel LED strip controller.
+
+        - pin: integer GPIO pin number or `machine.Pin` instance (defaults to NEOPIXELS['Pin'] from settings)
+        - n: number of LEDs (defaults to NEOPIXELS['Num'] from settings)
         - brightness: float 0.0-1.0 to scale colors (default 1.0)
         """
         if neopixel is None:
             raise RuntimeError('neopixel module not available')
+
+        # Use settings defaults if pin or n not provided
+        if pin is None:
+            if NEOPIXELS is not None:
+                pin = NEOPIXELS["Pin"]
+            else:
+                raise ValueError('pin must be specified or NEOPIXELS must be in settings')
+        
+        if n is None:
+            if NEOPIXELS is not None:
+                n = NEOPIXELS["Num"]
+            else:
+                raise ValueError('n must be specified or NEOPIXELS must be in settings')
 
         if isinstance(pin, int):
             pin = Pin(pin)
@@ -60,6 +77,12 @@ class WS2812:
         """Fill the entire strip with `color` (r,g,b)."""
         scaled = self._scale(color)
         for i in range(self.n):
+            self._np[i] = scaled
+
+    def range(self, start, end, color):
+        """Set pixels from `start` to `end` (exclusive) to `color` (r,g,b)."""
+        scaled = self._scale(color)
+        for i in range(max(0, start), min(self.n, end)):
             self._np[i] = scaled
 
     def clear(self):

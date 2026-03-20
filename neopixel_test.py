@@ -1,15 +1,15 @@
-"""neopixel.test
+"""neopixel_test
 
-Simple demo for `lib/ws2812b.py`.
-Run on the device to exercise the WS2812 wrapper.
+Simple demo for `lib/leds.py`.
+Run on the device to exercise the LEDs wrapper.
 """
 
 import time
 
 try:
-    from lib.ws2812b import WS2812
+    from lib.leds import LEDs
 except Exception as e:
-    print('WS2812 module not available:', e)
+    print('LEDs module not available:', e)
     raise
 
 
@@ -31,7 +31,7 @@ def show_color(strip, color, delay=0.6):
     time.sleep(delay)
 
 
-def rainbow_cycle(strip, cycles=1, delay=0.02):
+def rainbow_cycle(strip, cycles=1, delay=0.002):
     n = strip.n
     for j in range(256 * cycles):
         for i in range(n):
@@ -50,8 +50,7 @@ def brightness_demo(strip):
 
 
 def main():
-    # Adjust pin and count as needed for your hardware
-    strip = WS2812(pin=2, n=8, brightness=0.5)
+    strip = LEDs(brightness=0.5)
 
     try:
         print('Demo: red, green, blue')
