@@ -7,6 +7,9 @@ Guideline:
 
 ## Notes
 
+### ESP32 Board Pinout
+The file `/docs/esp32_pinout.png` shows the pinout for the ESP32 dev board in use (ESP32-WROOM-32).
+
 ### MAX7219 4-module LED matrix display wiring
 Uses **SPI** (not I2C). Pin mapping (set in `settings.BILLBOARD`):
 
